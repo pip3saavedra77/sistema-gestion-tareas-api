@@ -95,7 +95,7 @@ instaladas de cada dependencia y el comando para probar que /health responde.
 
 ### Entrada 2: Configuración centralizada con patrón Singleton (20/10/2026)
 
-**Lo que le pedí a Claude**:
+**Lo que le pedí a Claude (resumido):**
 
 > Quiero que mejor en el prompt que me vas a dar para Antigravity que haga el singleton de la configuracion y yo lo estudio cuando ya esté hecho, porque la verdad no sé cómo hacerlo. O dime cómo digo yo las reglas y tú lo haces código.
 
@@ -123,12 +123,55 @@ instaladas de cada dependencia y el comando para probar que /health responde.
 - Escribí `new Config()` fuera de la clase y TypeScript marcó error por el constructor privado.
 - `git status` antes del commit: solo aparecen `.env.example`, `src/index.ts` y `src/config/config.ts`; `.env` no aparece.
 
+### Entrada 3: Base de datos PostgreSQL con Docker (21/10/2026)
+
+**Lo que le pedí a Claude** 
+
+> Continuemos con la base de datos.
+
+Claude me presentó cuatro decisiones de diseño con opciones y una recomendación para cada una. Mi respuesta:
+
+> 1: esos nombres están bien. 2: me parece lo mejor usar UUID. 3: me gusta más usar CHECK. 4: la API no arranca.
+
+Más tarde, después de que Claude me explicara las diferencias, le dije:
+
+> Entonces si es mejor usar autoincremental, usemos autoincremental.
+
+**Qué pasó:** Claude me dio el contenido de `docker-compose.yml`, `schema.sql`, `database.ts`, `init-db.ts` y la nueva versión de `index.ts`, junto con los comandos y las pruebas. Antigravity no se usó en esta tarea. Yo ejecuté todo, revisé los resultados y corregí un problema con el tipo del id (ver "Retos y soluciones").
+
+**Decisiones de diseño que tomé (entre opciones propuestas por Claude):**
+1. **Columnas de `tasks` en español** (`titulo`, `descripcion`, `fecha_vencimiento`, `estado`), igual que el enunciado, para que coincida con lo que piden.
+2. **Id autoincremental en lugar de UUID.** Primero elegí UUID, pero después de ver las diferencias lo cambié: autoincremental es más simple de leer y probar, y la protección de las tareas ajenas depende de la verificación de dueño, no del tipo de id.
+3. **`CHECK` para limitar `estado`** a `pendiente`, `en curso` y `completada`, en lugar de un tipo `ENUM`, porque es más fácil de modificar si cambian los estados.
+4. **La API no arranca si la base de datos no responde**, con un mensaje claro. Es el mismo criterio que usé con las variables del `.env`: es mejor fallar al inicio que tener errores confusos después.
+
+**Qué se aceptó y por qué:**
+- `postgres:17-alpine` con versión fija en Docker Compose, para que todos usen la misma versión; el Compose lee las variables de mi `.env`, así que los datos de conexión no se repiten en dos lugares.
+- Un `healthcheck` en el contenedor, para saber cuándo la base está lista.
+- `pg` con un `Pool` de conexiones, que reutiliza conexiones en vez de abrir una por cada petición.
+- Consultas SQL directas en la capa `persistence`, sin ORM, para entender exactamente lo que se ejecuta.
+- `schema.sql` con `IF NOT EXISTS` y un script `npm run db:init`, que funciona con cualquier PostgreSQL (el de Docker o uno local), no solo con Docker.
+- Clave foránea con `ON DELETE CASCADE` de `tasks.user_id` a `users.id`, y un índice sobre `user_id`, porque `GET /tasks` siempre filtra por usuario.
+- `email` con restricción `UNIQUE`.
+
+**Qué se modificó o rechazó y por qué:**
+- Claude recomendó id autoincremental; yo elegí UUID y luego volví a autoincremental (ver decisión 2).
+
+**Verificación realizada:**
+- `docker compose ps` muestra el contenedor `tasks_db` en estado `healthy`.
+- `npm run db:init` crea las tablas `users` y `tasks`, y `\dt` en `psql` las lista.
+- `npm run build` compila sin errores y `npm run dev` imprime `Conexión a PostgreSQL establecida` antes de levantar el servidor.
+- Pruebas manuales con `psql`: un estado inválido es rechazado por el `CHECK`; una tarea con un `user_id` inexistente es rechazada por la clave foránea; una tarea válida queda con estado `pendiente` y las fechas llenas; un email repetido es rechazado por `UNIQUE`.
+- Al borrar un usuario de prueba, su tarea se borra también (`ON DELETE CASCADE`).
+- Con `docker compose stop`, `npm run dev` termina con el mensaje de error y no arranca el servidor.
+- Ejecutar `npm run db:init` por segunda vez no da error.
+- `git status` antes del commit: no aparece `.env`.
+
 ## Decisiones sin asistencia de IA
 
 1. **Usar Docker solo para la base de datos.** La propuse yo antes de que Claude la recomendara. Razón: me da un entorno reproducible. La API sigue ejecutándose con `npm run dev`, como pide el enunciado, y dejaré en el README una alternativa con PostgreSQL local.
 2. **Flujo de trabajo con dos IAs.** Decidí que Antigravity genere el código, que Claude me prepare los prompts y audite los cambios, y que los commits los haga yo después de revisar cada diff. Razón: así reviso todo lo que entra al proyecto y puedo explicarlo.
 3. **Nombre del repositorio.** Cambié la sugerencia de Claude (`task-management-api`) por `sistema-gestion-tareas-api`, para que coincida con el título del enunciado.
-
 
 ## Retos y soluciones
 
@@ -139,3 +182,7 @@ Al enviar el primer prompt, Antigravity mostró errores de conexión hacia un se
 ### Archivos creados en la carpeta equivocada (20/10/2026)
 
 Al ejecutar `Copy-Item .env.example .env`, PowerShell dijo que el archivo no existía, y `git status` mostraba `node_modules/` y `dist/` como archivos por subir. Esto pasó porque `.gitignore` y `.env.example` no estaban en la raíz: se habían creado dentro de `src/`. Los recreé en la raíz con comandos, borré los duplicados de `src/` y volví a revisar `git status` hasta que solo aparecieron los archivos correctos.
+
+### Esquema creado con el tipo de id equivocado (21/10/2026)
+
+Había decidido usar ids autoincrementales, pero la base de datos quedó creada con UUID, probablemente porque ejecuté `npm run db:init` con la primera versión del esquema antes de cambiarla. Lo noté en las pruebas manuales: el id de un usuario salía como `1fa37976-...` y una inserción falló con el error `column "user_id" is of type uuid but expression is of type integer`. Revisé `schema.sql`, lo dejé con ids autoincrementales, borré el volumen de Docker con `docker compose down -v` para que la base se recreara, volví a ejecutar `npm run db:init` y repetí las pruebas. Aprendí que `CREATE TABLE IF NOT EXISTS` no modifica tablas que ya existen, y que las pruebas manuales sirven para detectar este tipo de errores.
