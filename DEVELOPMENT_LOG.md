@@ -76,7 +76,7 @@ AL TERMINAR: lista exacta de archivos creados o modificados, las versiones
 instaladas de cada dependencia y el comando para probar que /health responde.
 ```
 
-**Qué pasó:** Antigravity no pudo ejecutar el prompt por errores de red. Por eso le pedí a Claude los comandos y el contenido de los archivos para crear el esqueleto yo mismo desde la terminal, y los ejecuté y revisé paso a paso.
+**Qué pasó:** Antigravity no pudo ejecutar el prompt por errores de red (ver "Retos y soluciones"). Por eso le pedí a Claude los comandos y el contenido de los archivos para crear el esqueleto yo mismo desde la terminal, y los ejecuté y revisé paso a paso.
 
 **Qué se aceptó y por qué:**
 - Separar `app.ts` (define la aplicación) de `index.ts` (levanta el servidor), para poder importar la app en pruebas sin abrir un puerto.
@@ -93,13 +93,42 @@ instaladas de cada dependencia y el comando para probar que /health responde.
 - `npm run dev` levanta el servidor y `http://localhost:3000/health` responde `{"status":"ok"}`.
 - Revisé `git status` antes del commit y comprobé que `node_modules`, `dist` y `.env` no se suben al repositorio.
 
+### Entrada 2: Configuración centralizada con patrón Singleton (20/10/2026)
+
+**Lo que le pedí a Claude**:
+
+> Quiero que mejor en el prompt que me vas a dar para Antigravity que haga el singleton de la configuracion y yo lo estudio cuando ya esté hecho, porque la verdad no sé cómo hacerlo. O dime cómo digo yo las reglas y tú lo haces código.
+
+**Qué pasó:** Claude me explicó qué es un Singleton con un ejemplo sencillo y me propuso tres reglas de diseño. Como Antigravity había fallado por red, Claude escribió directamente `src/config/config.ts` y la modificación de `src/index.ts`. Antigravity no se usó en esta tarea.
+
+**Reglas de diseño (propuestas por Claude, que acepté):**
+1. Si falta una variable del `.env`, la aplicación no arranca y el error indica cuál falta.
+2. Los valores son `readonly`: nadie puede cambiarlos después de cargados.
+3. El `.env` se lee una sola vez, en el constructor.
+
+**Qué se aceptó y por qué:**
+- Constructor privado y método estático `getInstance()`: es lo que define un Singleton y cumple lo que pide el enunciado.
+- Que todas las variables sean obligatorias y fallar al arrancar, porque es mejor un error claro al inicio que un fallo confuso más adelante.
+- Validar que `PORT` y `DB_PORT` sean números enteros positivos.
+- Dejar de llamar a `dotenv.config()` en `index.ts`, porque ahora lo hace `Config`.
+- Poner valores de ejemplo funcionales en `.env.example` (los mismos que usaré con Docker), sin secretos reales.
+
+**Qué se modificó o rechazó y por qué:**
+- Usé el código tal como me lo dio Claude, sin modificarlo.
+- Generé yo mismo el valor de `JWT_SECRET` con `crypto` en mi máquina; mi `.env` real no se sube porque está en `.gitignore`.
+
+**Verificación realizada:**
+- `npm run build` compila sin errores y `/health` sigue respondiendo.
+- Vacié `JWT_SECRET` en mi `.env` y comprobé que la aplicación no arranca y dice `Falta la variable de entorno obligatoria: JWT_SECRET`. Luego restauré el valor.
+- Escribí `new Config()` fuera de la clase y TypeScript marcó error por el constructor privado.
+- `git status` antes del commit: solo aparecen `.env.example`, `src/index.ts` y `src/config/config.ts`; `.env` no aparece.
+
 ## Decisiones sin asistencia de IA
 
-1. **Usar Docker solo para la base de datos.** La propuse yo antes de consultarlo con
-   Claude. Razón: me da un entorno reproducible. La API sigue ejecutándose con
-   `npm run dev`, como pide el enunciado, y dejo en el README una alternativa con
-   PostgreSQL local.
-2. **Nombre del repositorio.** (Explicado en la Entrada 0.)
+1. **Usar Docker solo para la base de datos.** La propuse yo antes de que Claude la recomendara. Razón: me da un entorno reproducible. La API sigue ejecutándose con `npm run dev`, como pide el enunciado, y dejaré en el README una alternativa con PostgreSQL local.
+2. **Flujo de trabajo con dos IAs.** Decidí que Antigravity genere el código, que Claude me prepare los prompts y audite los cambios, y que los commits los haga yo después de revisar cada diff. Razón: así reviso todo lo que entra al proyecto y puedo explicarlo.
+3. **Nombre del repositorio.** Cambié la sugerencia de Claude (`task-management-api`) por `sistema-gestion-tareas-api`, para que coincida con el título del enunciado.
+
 
 ## Retos y soluciones
 
