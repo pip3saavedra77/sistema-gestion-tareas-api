@@ -1,13 +1,25 @@
-import express, { Application, Request, Response } from 'express';
+import express, { type Application, type Request, type Response } from 'express';
+import { requestLogger } from './api/middlewares/requestLogger.js';
+import { notFoundHandler } from './api/middlewares/notFoundHandler.js';
+import { errorHandler } from './api/middlewares/errorHandler.js';
 
 const app: Application = express();
 
-// Permite leer cuerpos de petición en formato JSON
+// 1. Log de todas las peticiones entrantes
+app.use(requestLogger);
+
+// 2. Parseo del cuerpo JSON (los errores de sintaxis los captura errorHandler)
 app.use(express.json());
 
-// Ruta de prueba para comprobar que el servidor está vivo
+// 3. Rutas de la aplicación
 app.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok' });
+  res.json({ status: 'ok' });
 });
+
+// 4. Manejador de rutas no encontradas (debe ir después de todas las rutas)
+app.use(notFoundHandler);
+
+// 5. Manejador central de errores (debe ser el último middleware)
+app.use(errorHandler);
 
 export default app;
