@@ -36,7 +36,7 @@ function buildFieldName(instancePath: string, params: ErrorObject['params']): st
   if ('additionalProperty' in params && typeof params.additionalProperty === 'string') {
     return params.additionalProperty;
   }
-  return 'desconocido';
+  return 'cuerpo';
 }
 
 /**
