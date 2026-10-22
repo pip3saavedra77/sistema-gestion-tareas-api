@@ -597,7 +597,128 @@ AL TERMINAR: lista de archivos creados o modificados y las versiones instaladas.
 - Comprobé que los límites de `RegisterRequest`, `LoginRequest`, `CreateTaskRequest` y `UpdateTaskRequest` coinciden con los esquemas AJV, y que el enum de estados sale igual en `CreateTaskRequest`, `UpdateTaskRequest` y `Task`.
 - En la interfaz de `/docs`: hice login desde Swagger, pulsé **Authorize** y `GET /tasks` respondió 200 con mis tareas; después de **Logout**, el mismo endpoint respondió 401 "Token de autenticación requerido". También probé crear tareas con `POST /tasks`, `DELETE` (204) y `PUT` con `{}`, que responde 400 con `"field":"cuerpo"`.
 - Swagger no rompió nada: `/ruta-inexistente` responde 404 con `NOT_FOUND`, `/health` responde 200 y `/docs.json` responde 200 con el documento.
+### Entrada 8: Revisión externa y correcciones con Claude Code (22/10/2026)
 
+**Lo que le pedí a Claude:**
+
+> puedes darme un prompt para daarle a code y que el mismo haga eso que dices para agilizar esto rapido
+
+**Contexto:** antes de grabar el video quise una segunda opinión independiente. Le di a una sesión nueva de Claude Code este prompt, que me preparó Claude, para que evaluara el repositorio como lo haría un evaluador técnico:
+
+```
+Revisa este repositorio como lo haría un evaluador técnico de Instaleap para un
+aprendiz de Backend. Es una API REST de gestión de tareas (Node.js, Express 5,
+TypeScript, PostgreSQL). Requisitos: capas (api, controllers, services,
+persistence), config con Singleton y .env.example, registro y login con bcrypt
+y JWT, middleware Bearer, CRUD de tareas solo para su dueño, validación con
+AJV, errores propios con manejador central, Swagger, JSDoc, Conventional
+Commits, README y DEVELOPMENT_LOG.md (uso de IA, decisiones propias, retos).
+Recorre carpeta por carpeta, intenta instalar, compilar y levantar la API, y
+dime con sinceridad qué falla, qué falta y qué mejorarías. No modifiques nada.
+```
+
+El informe confirmó que la instalación y el arranque funcionan, y encontró fallos reales. Se los mostré a Claude, que los clasificó y me propuso corregir los de mayor impacto el mismo día. Para eso me dio este prompt, que envié a Claude Code:
+
+```
+Trabaja en este repositorio (sistema-gestion-tareas-api). Aplica SOLO los
+cambios de abajo, sin refactors extra, sin cambiar el estilo del resto del
+código y sin agregar dependencias nuevas. NO hagas commits ni push; déjalo todo
+sin commitear para que yo revise el diff. No toques mi .env real ni mi
+contenedor tasks_db del puerto 5432: para verificar levanta un PostgreSQL
+desechable en otro puerto (ej. 55432) con un .env temporal fuera del repo, y
+bórralo al terminar.
+
+CAMBIOS:
+
+1. DEVELOPMENT_LOG.md, sección "Decisiones sin asistencia de IA", decisión 4:
+   reemplázala completa por este texto exacto:
+   "4. **Estructura del video.** Armé yo el orden: presentación, estructura del
+   proyecto, configuración y base de datos, demostración en Swagger, seguridad,
+   uso de IA y bitácora, y cierre. Razón: el enunciado pide explicar lo que
+   hice, así que primero muestro cómo está construido y luego lo muestro
+   funcionando. Mi plan inicial incluía pruebas automáticas con cobertura, pero
+   las pruebas eran opcionales y no las implementé; lo dejo declarado en el
+   README."
+   No modifiques nada más de ese archivo.
+
+2. Cuerpo demasiado grande: en src/api/middlewares/errorHandler.ts, el error de
+   express.json() con err.type === 'entity.too.large' debe responder 413 con el
+   formato de siempre ({status:'error', code:'PAYLOAD_TOO_LARGE', message}).
+   Añade esa fila a la tabla de errores del README.
+
+3. Fecha 0000-01-01 causa 500: en src/api/schemas/task.schemas.ts, rechaza
+   fechas con año 0000 en fecha_vencimiento (crear y actualizar) para que
+   responda 400 de validación. Comprueba también que 2026-02-30 da 400.
+
+4. JWT_EXPIRES_IN inválido causa 500 en el login: en src/config/config.ts valida
+   al arrancar que tenga formato número + unidad (s, m, h o d; ej. 1h, 30m) y
+   que sea mayor que cero; si no, error claro al arrancar. Valida también que
+   JWT_SECRET tenga al menos 32 caracteres. NO rechaces el valor de ejemplo de
+   .env.example (debe seguir arrancando con él).
+
+5. Contraseña medida en bytes: bcrypt solo usa los primeros 72 bytes. Haz que
+   registro y login rechacen con 400 contraseñas de más de 72 BYTES UTF-8
+   (Buffer.byteLength), no solo 72 caracteres, con un mensaje claro en el campo
+   password. Mantén la validación dentro del sistema AJV existente (por ejemplo
+   con una palabra clave personalizada en validate.ts) y actualiza la nota en el
+   README y en src/docs/openapi.ts.
+
+6. src/api/middlewares/authenticate.ts: acepta el esquema "Bearer" sin importar
+   mayúsculas/minúsculas (RFC 7235), manteniendo el resto igual.
+
+7. src/services/auth.service.ts: quita el trim() del email en normalizeEmail
+   (AJV ya rechaza emails con espacios antes de llegar ahí); deja el
+   toLowerCase().
+
+8. package.json: "main" debe ser "dist/index.js"; añade "description" y
+   "engines": {"node": ">=20"}. No inventes "author".
+
+9. README.md, sección "Limitaciones conocidas": quita lo que quedó resuelto
+   (JWT_EXPIRES_IN sin validar) y añade: "Un token de un usuario eliminado
+   sigue pasando el middleware: GET /tasks responde 200 con lista vacía y
+   POST /tasks responde 401."
+
+VERIFICACIÓN (con el PostgreSQL desechable): npm run build sin errores; y con
+curl comprueba y muéstrame la respuesta de cada caso:
+ - cuerpo de 200 KB a POST /auth/login -> 413
+ - fecha_vencimiento "0000-01-01" y "2026-02-30" -> 400
+ - arrancar con JWT_EXPIRES_IN=unahora y con JWT_SECRET=corto -> no arranca y
+   explica por qué; con el .env.example tal cual -> arranca
+ - registro con 36 "ñ" + 36 "A" (más de 72 bytes) -> 400; con 8 caracteres
+   normales -> 201
+ - "authorization: bearer <token>" en minúsculas -> 200 en GET /tasks
+ - regresión: register, login, CRUD completo y aislamiento entre dos usuarios
+   siguen funcionando.
+
+AL TERMINAR: lista exacta de archivos modificados, los resultados reales de cada
+prueba (sin inventar ninguno) y un mensaje de commit sugerido por cambio, en
+inglés y con formato Conventional Commits. Si algún punto no se pudo hacer o
+verificar, dilo claramente.
+```
+
+**Qué se aceptó y por qué:**
+- Corregir los cuerpos de más de 100 KB (ahora 413), la fecha con año 0000 y la duración del JWT inválida, porque un dato del cliente nunca debería provocar un error 500.
+- Medir la contraseña en bytes. `bcrypt` solo usa los primeros 72 bytes, así que dos contraseñas distintas podían comportarse como la misma. Se hizo con una palabra clave propia de AJV (`maxBytes`).
+- Validar al arrancar que `JWT_SECRET` tenga al menos 32 caracteres y que `JWT_EXPIRES_IN` tenga formato número + unidad (`s`, `m`, `h` o `d`). Es más estricto que la librería, y eso lo acepté a propósito.
+- Aceptar `Bearer` sin distinguir mayúsculas, como indica la RFC 7235.
+- Quitar el `trim()` del email: AJV rechaza los espacios antes de que llegue al servicio, así que nunca se ejecutaba.
+- Corregir `main` y añadir `description` y `engines` en `package.json`.
+- Corregir la decisión 4 de "Decisiones sin asistencia de IA", que decía que el video mostraba pruebas con cobertura cuando el repositorio no tiene pruebas automáticas.
+
+**Qué se modificó o rechazó y por qué:**
+- Elegí que Code trabajara en una rama nueva (`fix/review-findings`) y no en `main`, para revisar el diff antes de combinar.
+- Revisé el diff completo y los commits los hice yo. En vez de los 9 commits que sugirió Code, hice 8: dejé `README.md` y `DEVELOPMENT_LOG.md` juntos en un solo commit de documentación, porque el README cambia por tres motivos distintos y separarlos exigía `git add -p`.
+- No corregí todo lo del informe, solo lo que cabía con seguridad antes de entregar. Quedan sin hacer: pruebas automáticas, ESLint y Prettier, `helmet`, cierre ordenado del servidor y el estilo mezclado entre archivos. El caso del token de un usuario eliminado lo dejé documentado como limitación en el README, porque corregirlo bien exige una consulta extra por petición.
+- Code señaló dos pendientes que no hizo por no estar en mi prompt: la tabla de variables del README no menciona el mínimo de `JWT_SECRET` ni el formato de `JWT_EXPIRES_IN`, y `openapi.ts` no menciona el patrón de la fecha. No los corregí.
+
+**Verificación realizada:**
+- Code reportó haber probado cada caso contra un PostgreSQL desechable en otro puerto, sin tocar mi `.env` ni mi contenedor.
+- Yo hice mis propias pruebas con mi `.env` real, y todas dieron el resultado esperado:
+  - `npm run build` compila sin errores.
+  - `npm run dev` arranca con las validaciones nuevas de configuración.
+  - Un cuerpo de 200 KB enviado desde un archivo responde 413 `PAYLOAD_TOO_LARGE`.
+  - En Swagger, crear una tarea con `fecha_vencimiento` `0000-01-01` responde 400.
+- Revisé `git status` antes de cada commit y comprobé que `.env` y `dist` no se suben.
 ## Decisiones sin asistencia de IA
 
 1. **Usar Docker solo para la base de datos.** La propuse yo antes de que Claude la recomendara. Razón: me da un entorno reproducible. La API sigue ejecutándose con `npm run dev`, como pide el enunciado, y dejo en el README una alternativa con PostgreSQL local.
@@ -644,3 +765,11 @@ Al revisar la documentación, noté que algunos ejemplos de error no decían lo 
 ### Confusión con "Try it out" en Swagger (22/10/2026)
 
 Pensé que los pasos de `PUT` en Swagger estaban mal, porque no aparecía ninguna respuesta del servidor. En realidad el campo `id` estaba vacío, y Swagger no envía la petición mientras un parámetro obligatorio esté vacío. También confundía los ejemplos de la sección "Responses" (que son documentación fija) con la respuesta real, que aparece más arriba en "Server response". Escribí el `id` y el cuerpo `{}`, y la respuesta fue la esperada (400 con `"field":"cuerpo"`).
+
+### Contradicción entre la bitácora y el repositorio (22/10/2026)
+
+La revisión externa de Claude Code encontró que mi decisión 4 de "Decisiones sin asistencia de IA" describía un video con "pruebas en el código" y "pruebas corriendo con cobertura", pero el repositorio no tiene pruebas automáticas. Había escrito esa estructura al inicio, como plan, y no la actualicé cuando decidí no hacer las pruebas opcionales. Corregí la decisión para que diga lo que realmente se hizo y mantuve la limitación declarada en el README.
+
+### Falso negativo al probar caracteres no ASCII con curl (22/10/2026)
+
+Al verificar el límite de contraseña en bytes, Code probó 36 letras "ñ" (exactamente 72 bytes) con `curl` en Git Bash sobre Windows y la respuesta fue un rechazo, cuando debía aceptarse. Comprobó con Node, enviando UTF-8 correcto, que el código sí funciona: 72 bytes pasan y 73 se rechazan. El problema era la codificación de `curl` en esa terminal, no el código. Aprendí que una prueba fallida puede estar mal hecha, y que conviene confirmar con una segunda herramienta antes de tocar el código.
