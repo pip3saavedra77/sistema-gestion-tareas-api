@@ -36,7 +36,8 @@ function isJwtPayloadWithSub(payload: unknown): payload is JwtPayloadWithSub {
 export function authenticate(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
 
-  if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+  // El esquema "Bearer" no distingue mayúsculas de minúsculas (RFC 7235)
+  if (typeof authHeader !== 'string' || !/^bearer /i.test(authHeader)) {
     throw new AuthenticationError('Token de autenticación requerido');
   }
 
