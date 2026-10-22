@@ -49,13 +49,14 @@ export interface LoginResult {
 }
 
 /**
- * Normaliza una dirección de correo eliminando espacios y convirtiéndola a minúsculas.
+ * Normaliza una dirección de correo convirtiéndola a minúsculas.
+ * No hace falta quitar espacios: AJV rechaza los emails con espacios antes de llegar aquí.
  *
  * @param email Cadena original del correo.
  * @returns Correo saneado y estandarizado.
  */
 function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
+  return email.toLowerCase();
 }
 
 /**
