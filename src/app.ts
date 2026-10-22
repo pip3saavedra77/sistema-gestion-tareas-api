@@ -1,9 +1,11 @@
 import express, { type Application, type Request, type Response } from 'express';
+import swaggerUi from 'swagger-ui-express';
 import { requestLogger } from './api/middlewares/requestLogger.js';
 import { notFoundHandler } from './api/middlewares/notFoundHandler.js';
 import { errorHandler } from './api/middlewares/errorHandler.js';
 import authRoutes from './api/routes/auth.routes.js';
 import taskRoutes from './api/routes/task.routes.js';
+import { openApiDocument } from './docs/openapi.js';
 
 const app: Application = express();
 
@@ -21,7 +23,13 @@ app.get('/health', (_req: Request, res: Response) => {
 app.use('/auth', authRoutes);
 app.use('/tasks', taskRoutes);
 
-// 4. Manejador de rutas no encontradas (debe ir después de todas las rutas)
+// 4. Documentación de la API (OpenAPI 3.0 y Swagger UI)
+app.get('/docs.json', (_req: Request, res: Response) => {
+  res.json(openApiDocument);
+});
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
+
+// 5. Manejador de rutas no encontradas (debe ir después de todas las rutas)
 app.use(notFoundHandler);
 
 // 5. Manejador central de errores (debe ser el último middleware)
