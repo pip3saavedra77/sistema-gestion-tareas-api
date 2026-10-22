@@ -3,6 +3,7 @@ import { requestLogger } from './api/middlewares/requestLogger.js';
 import { notFoundHandler } from './api/middlewares/notFoundHandler.js';
 import { errorHandler } from './api/middlewares/errorHandler.js';
 import authRoutes from './api/routes/auth.routes.js';
+import taskRoutes from './api/routes/task.routes.js';
 
 const app: Application = express();
 
@@ -18,6 +19,7 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.use('/auth', authRoutes);
+app.use('/tasks', taskRoutes);
 
 // 4. Manejador de rutas no encontradas (debe ir después de todas las rutas)
 app.use(notFoundHandler);
