@@ -125,11 +125,11 @@ instaladas de cada dependencia y el comando para probar que /health responde.
 
 ### Entrada 3: Base de datos PostgreSQL con Docker (21/10/2026)
 
-**Lo que le pedí a Claude** 
+**Lo que le pedí a Claude** (corregí la ortografía; el sentido es el original):
 
 > Continuemos con la base de datos.
 
-Claude me presentó cuatro decisiones de diseño con opciones y una recomendación para cada una. Mi respuesta:
+Claude me presentó cuatro decisiones de diseño con opciones y una recomendación para cada una. Mi respuesta (también con la ortografía corregida):
 
 > 1: esos nombres están bien. 2: me parece lo mejor usar UUID. 3: me gusta más usar CHECK. 4: la API no arranca.
 
@@ -167,11 +167,125 @@ Más tarde, después de que Claude me explicara las diferencias, le dije:
 - Ejecutar `npm run db:init` por segunda vez no da error.
 - `git status` antes del commit: no aparece `.env`.
 
+### Entrada 4: Manejo de errores, validación y log de peticiones con Antigravity (21/10/2026)
+
+**Lo que le pedí a Claude:**
+
+> Hola, ya es hora de continuar en donde lo dejamos anoche. Quisiera adelantar bastante ahorita, tengo 3 horas aproximadamente para trabajar hoy. También me gustaría empezar a que Antigravity nos ayude con el código para poder agilizar más.
+
+Claude me presentó 7 decisiones de diseño con una recomendación para cada una, y respondí:
+
+> ok todas
+
+**Decisiones de diseño que tomé (entre opciones propuestas por Claude):**
+1. **Formato del JSON de error:** `{ "status": "error", "code": "...", "message": "...", "details": [...] }`, con `details` solo en errores de validación.
+2. **Tarea de otro usuario:** responder 404 y no 403, para no revelar que la tarea existe.
+3. **Contraseña:** mínimo 8 y máximo 72 caracteres, porque bcrypt ignora lo que pase de 72 bytes.
+4. **Login fallido:** el mismo mensaje ("Credenciales inválidas") para email inexistente y contraseña incorrecta, para no revelar qué emails están registrados.
+5. **Email:** se guarda en minúsculas y sin espacios, para que `Ana@x.com` y `ana@x.com` no cuenten como usuarios distintos.
+6. **Validación:** AJV con `ajv-formats`, como sugiere el enunciado.
+7. **Log de peticiones:** middleware propio, sin librería extra (método, ruta, estado y milisegundos).
+
+**Prompt que Claude me dio y que envié a Antigravity:**
+
+```
+CONTEXTO: API REST en Node.js + Express + TypeScript (modo estricto). NO es NestJS.
+Estructura existente: src/api/routes, src/api/middlewares, src/controllers, src/services,
+src/persistence, src/config, src/utils, src/errors. Ya existen src/app.ts, src/index.ts,
+src/config/config.ts (Singleton) y src/persistence/database.ts (Pool de pg).
+Trabajo en Windows (PowerShell).
+
+TAREA: crear el manejo centralizado de errores, la validación con AJV y un log de peticiones.
+
+HACER:
+1. Instalar únicamente: ajv y ajv-formats. Revisa qué versión de Express hay instalada
+   e indícala al terminar.
+
+2. src/errors/AppError.ts: clase base AppError que extiende Error, con propiedades
+   readonly: statusCode (number), code (string) y details (opcional).
+   Subclases, cada una en su archivo dentro de src/errors, con sus códigos:
+   - ValidationError: 400, "VALIDATION_ERROR" (acepta details)
+   - AuthenticationError: 401, "AUTHENTICATION_ERROR"
+   - ForbiddenError: 403, "FORBIDDEN"
+   - NotFoundError: 404, "NOT_FOUND"
+   - ConflictError: 409, "CONFLICT"
+   Mensajes en español y un mensaje por defecto razonable en cada subclase.
+
+3. src/api/middlewares/errorHandler.ts: manejador central de errores de Express.
+   - Si el error es AppError: responder con su statusCode y este JSON:
+     { "status": "error", "code": "...", "message": "...", "details": [...] }
+     ("details" solo aparece si existe).
+   - Si es un error de JSON mal formado del body (lo lanza express.json): responder 400
+     con code "VALIDATION_ERROR" y mensaje "El cuerpo de la petición no es un JSON válido".
+   - Cualquier otro error: registrarlo con console.error (con el stack) y responder 500
+     con code "INTERNAL_ERROR" y mensaje genérico "Error interno del servidor".
+     NUNCA enviar el stack ni el mensaje interno al cliente.
+
+4. src/api/middlewares/notFoundHandler.ts: para rutas inexistentes, lanzar NotFoundError
+   con mensaje "Ruta no encontrada".
+
+5. src/api/middlewares/validate.ts: función validate(schema, source) donde source es
+   'body' | 'params' | 'query'. Usa una instancia única de Ajv con allErrors: true y
+   ajv-formats, SIN coerceTypes. Compila el esquema una sola vez. Si la validación falla,
+   lanza ValidationError con message "Datos de entrada inválidos" y details como arreglo
+   de objetos { field, message } (por ejemplo field "email"). Tipar con los tipos de
+   ajv (JSONSchemaType o object), sin "any".
+
+6. src/api/middlewares/requestLogger.ts: al terminar cada respuesta (evento "finish"),
+   imprimir una línea con fecha ISO, método, url, código de estado y duración en ms.
+
+7. Modificar src/app.ts: orden de middlewares: requestLogger, express.json(), rutas
+   (por ahora solo /health), notFoundHandler y, al final, errorHandler.
+
+REGLAS:
+- Prohibido usar "any". Tipado estricto en todo.
+- JSDoc en español en las clases y funciones, con comentarios sencillos
+  (necesito entender el código para explicarlo).
+- Código limpio, un archivo por clase de error.
+
+NO HACER: no instalar otras dependencias, no crear rutas de autenticación ni de tareas,
+no tocar config.ts, database.ts ni index.ts, no hacer commits ni usar comandos de git.
+
+AL TERMINAR: lista exacta de archivos creados o modificados, la versión de Express
+instalada y cómo probar que una ruta inexistente y un JSON mal formado responden bien.
+```
+
+**Auditoría del resultado:** al terminar le pedí a Antigravity un resumen (walkthrough) con este mensaje:
+
+> dame el walkthrough de todo lo que hiciste, necesito auditarlo para saber que todo esté bien y no se haya salido de lo que pedí
+
+Como el walkthrough es lo que Antigravity cuenta de su propio trabajo, no lo tomé como prueba y lo comprobé con comandos. Claude lo revisó conmigo contra el prompt original. Antigravity ejecutó además un comando de solo lectura (`node -e ...`) para leer las versiones de `ajv` y `ajv-formats`; Claude me explicó qué hacía y lo acepté.
+
+**Qué se aceptó y por qué:**
+- Las 5 clases de error, cada una en su archivo, con los códigos HTTP y `code` pedidos, porque cumplen exactamente el prompt y mi decisión 1.
+- `errorHandler` con tres casos (error propio, JSON mal formado y error inesperado). En el inesperado la respuesta es un texto fijo, así que nunca filtra el stack al cliente.
+- `notFoundHandler`, que lanza `NotFoundError` y deja que `errorHandler` arme la respuesta.
+- `validate` con una instancia única de AJV (`allErrors: true`, `ajv-formats`, sin `coerceTypes`) y errores como `{ field, message }`.
+- `requestLogger` con el evento `finish`, para medir la respuesta completa.
+- El orden de middlewares en `app.ts` (logger, `express.json()`, rutas, `notFoundHandler`, `errorHandler`).
+- Dependencias instaladas: solo `ajv` 8.20.0 y `ajv-formats` 3.0.1, según el reporte de Antigravity.
+
+**Qué se modificó o rechazó y por qué:**
+- Claude me señaló que el walkthrough decía que `Object.setPrototypeOf` es obligatorio al compilar a CommonJS, y eso solo era cierto en targets antiguos; mi `tsconfig` usa `ES2022`. Dejé la línea, que no estorba, pero no repetiré esa explicación.
+- **Hallazgo:** en `validate.ts`, si un esquema usa `additionalProperties: false` y llega un campo no permitido, el error se reportaba como campo `"desconocido"`. Le pedí a Antigravity un ajuste puntual para que use el nombre real del campo. Revisé el código resultante y lo acepté (`fix: report additional properties in validation errors`).
+- Limitación conocida que no corregí: un cuerpo de petición demasiado grande (más de 100 KB) lo rechaza `express.json()` con un error propio que hoy se responde como 500.
+- El caché de esquemas con `WeakMap` es más complicado de lo necesario, porque `validate()` ya se ejecuta una sola vez por ruta; lo dejé, pero sé que es redundante.
+
+**Verificación realizada:**
+- `git status`: solo los archivos esperados (`package.json`, `package-lock.json`, `app.ts`, 6 de errores y 4 middlewares). No se tocaron `config.ts`, `database.ts`, `index.ts` ni `.env`.
+- `git diff package.json`: solo se añadieron `ajv` y `ajv-formats`.
+- Búsqueda de `any` en todos los `.ts` de `src`: sin resultados.
+- `npm run build`: compila sin errores.
+- Con el servidor corriendo: `GET /ruta-inexistente` responde 404 con `NOT_FOUND`; un `POST` con JSON roto responde 400 con `VALIDATION_ERROR`; `GET /health` responde 200 con `{"status":"ok"}`.
+- El log del servidor muestra una línea por petición con fecha, método, ruta, estado y milisegundos.
+
 ## Decisiones sin asistencia de IA
 
 1. **Usar Docker solo para la base de datos.** La propuse yo antes de que Claude la recomendara. Razón: me da un entorno reproducible. La API sigue ejecutándose con `npm run dev`, como pide el enunciado, y dejaré en el README una alternativa con PostgreSQL local.
 2. **Flujo de trabajo con dos IAs.** Decidí que Antigravity genere el código, que Claude me prepare los prompts y audite los cambios, y que los commits los haga yo después de revisar cada diff. Razón: así reviso todo lo que entra al proyecto y puedo explicarlo.
 3. **Nombre del repositorio.** Cambié la sugerencia de Claude (`task-management-api`) por `sistema-gestion-tareas-api`, para que coincida con el título del enunciado.
+4. **Estructura del video en cinco partes.** Armé yo el orden: desarrollo y prompts, pruebas en el código, modelo de datos con contraseñas cifradas, pruebas corriendo con cobertura y demostración con Postman. Razón: recorre todo lo que se evalúa, de cómo se construyó a cómo funciona.
+5. **Pedirle un walkthrough a Antigravity para auditarlo.** Decidí no aceptar cambios solo por la palabra de la IA: pedí un resumen de lo hecho y lo contrasté con `git status`, `git diff`, una búsqueda de `any`, el build y pruebas con `curl`.
 
 ## Retos y soluciones
 
@@ -186,3 +300,7 @@ Al ejecutar `Copy-Item .env.example .env`, PowerShell dijo que el archivo no exi
 ### Esquema creado con el tipo de id equivocado (21/10/2026)
 
 Había decidido usar ids autoincrementales, pero la base de datos quedó creada con UUID, probablemente porque ejecuté `npm run db:init` con la primera versión del esquema antes de cambiarla. Lo noté en las pruebas manuales: el id de un usuario salía como `1fa37976-...` y una inserción falló con el error `column "user_id" is of type uuid but expression is of type integer`. Revisé `schema.sql`, lo dejé con ids autoincrementales, borré el volumen de Docker con `docker compose down -v` para que la base se recreara, volví a ejecutar `npm run db:init` y repetí las pruebas. Aprendí que `CREATE TABLE IF NOT EXISTS` no modifica tablas que ya existen, y que las pruebas manuales sirven para detectar este tipo de errores.
+
+### Base de datos vacía tras recrear el contenedor (21/10/2026)
+
+Al volver a trabajar, `docker compose ps` no mostraba ningún contenedor y `docker compose up -d` creó de nuevo la red y el volumen. La API arrancaba porque solo comprueba que la base responde, pero las tablas ya no existían. Ejecuté `npm run db:init` y confirmé con `\dt` que volvían a estar `users` y `tasks`. Aprendí que, si el volumen se recrea, hay que volver a aplicar el esquema.
