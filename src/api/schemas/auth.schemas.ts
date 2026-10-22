@@ -11,6 +11,7 @@ export const registerSchema: AnySchemaObject = {
       type: 'string',
       minLength: 1,
       maxLength: 100,
+      pattern: '\\S',
     },
     email: {
       type: 'string',
