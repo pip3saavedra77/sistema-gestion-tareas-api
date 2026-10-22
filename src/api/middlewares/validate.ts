@@ -1,4 +1,9 @@
-import Ajv, { type AnySchemaObject, type ValidateFunction, type ErrorObject } from 'ajv';
+import Ajv, {
+  type AnySchemaObject,
+  type ValidateFunction,
+  type ErrorObject,
+  type SchemaValidateFunction,
+} from 'ajv';
 import addFormats from 'ajv-formats';
 import { type Request, type Response, type NextFunction } from 'express';
 import { ValidationError } from '../../errors/ValidationError.js';
@@ -19,6 +24,33 @@ interface FieldError {
  */
 const ajv = new Ajv({ allErrors: true });
 addFormats(ajv);
+
+/**
+ * Valida la palabra clave personalizada "maxBytes": el texto no puede ocupar más
+ * de `limit` bytes en UTF-8. "maxLength" cuenta caracteres, pero bcrypt solo usa
+ * los primeros 72 bytes (una "ñ" ocupa 2), así que hace falta medir en bytes.
+ */
+const validateMaxBytes: SchemaValidateFunction = (limit: number, data: string): boolean => {
+  const valid = Buffer.byteLength(data, 'utf8') <= limit;
+  validateMaxBytes.errors = valid
+    ? []
+    : [
+        {
+          keyword: 'maxBytes',
+          message: `must NOT have more than ${limit} bytes (UTF-8)`,
+          params: { limit },
+        },
+      ];
+  return valid;
+};
+
+ajv.addKeyword({
+  keyword: 'maxBytes',
+  type: 'string',
+  schemaType: 'number',
+  errors: true,
+  validate: validateMaxBytes,
+});
 
 /**
  * Convierte la ruta de instancia de AJV en un nombre de campo legible.

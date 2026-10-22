@@ -164,6 +164,8 @@ export const openApiDocument: OpenApiDocument = {
             type: 'string',
             minLength: 8,
             maxLength: 72,
+            description:
+              'Mínimo 8 caracteres y máximo 72 bytes en UTF-8 (bcrypt ignora lo que pase de 72 bytes; una letra como "ñ" ocupa 2).',
             example: 'PasswordSeguro123!',
           },
         },
@@ -202,6 +204,8 @@ export const openApiDocument: OpenApiDocument = {
             type: 'string',
             minLength: 1,
             maxLength: 72,
+            description:
+              'Máximo 72 bytes en UTF-8 (bcrypt ignora lo que pase de 72 bytes; una letra como "ñ" ocupa 2).',
             example: 'PasswordSeguro123!',
           },
         },
