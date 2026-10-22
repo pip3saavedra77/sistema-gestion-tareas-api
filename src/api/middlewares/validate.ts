@@ -32,6 +32,10 @@ function buildFieldName(instancePath: string, params: ErrorObject['params']): st
   if ('missingProperty' in params && typeof params.missingProperty === 'string') {
     return params.missingProperty;
   }
+  // Para errores de tipo "additionalProperties", el campo no permitido está en params.additionalProperty
+  if ('additionalProperty' in params && typeof params.additionalProperty === 'string') {
+    return params.additionalProperty;
+  }
   return 'desconocido';
 }
 
