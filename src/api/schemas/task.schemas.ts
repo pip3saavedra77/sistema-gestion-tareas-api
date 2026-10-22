@@ -30,6 +30,8 @@ export const createTaskSchema: AnySchemaObject = {
     fecha_vencimiento: {
       type: 'string',
       format: 'date',
+      // El año 0000 pasa el formato "date", pero PostgreSQL no lo acepta
+      pattern: '^(?!0000)',
     },
     estado: {
       type: 'string',
@@ -60,6 +62,8 @@ export const updateTaskSchema: AnySchemaObject = {
     fecha_vencimiento: {
       type: 'string',
       format: 'date',
+      // El año 0000 pasa el formato "date", pero PostgreSQL no lo acepta
+      pattern: '^(?!0000)',
     },
     estado: {
       type: 'string',
