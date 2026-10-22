@@ -24,13 +24,27 @@ function isJsonParseError(err: unknown): err is SyntaxError {
 }
 
 /**
+ * Determina si el error proviene de `express.json()` porque el cuerpo supera
+ * el límite permitido (100 KB por defecto). Se identifica por `type: 'entity.too.large'`.
+ */
+function isPayloadTooLargeError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'type' in err &&
+    err.type === 'entity.too.large'
+  );
+}
+
+/**
  * Manejador central de errores de Express (4 parámetros obligatorios).
  * Debe registrarse como el ÚLTIMO middleware en app.ts.
  *
  * Casos cubiertos:
  *  1. AppError y subclases: responde con su propio statusCode y estructura JSON.
  *  2. JSON malformado de express.json(): responde 400 con código VALIDATION_ERROR.
- *  3. Cualquier otro error: registra el stack en consola y responde 500 genérico.
+ *  3. Cuerpo demasiado grande para express.json(): responde 413 con código PAYLOAD_TOO_LARGE.
+ *  4. Cualquier otro error: registra el stack en consola y responde 500 genérico.
  */
 export function errorHandler(
   err: unknown,
@@ -65,7 +79,18 @@ export function errorHandler(
     return;
   }
 
-  // Caso 3: error inesperado — nunca exponer internos al cliente
+  // Caso 3: cuerpo de la petición más grande que el límite de express.json()
+  if (isPayloadTooLargeError(err)) {
+    const body: ErrorResponseBody = {
+      status: 'error',
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'El cuerpo de la petición es demasiado grande.',
+    };
+    res.status(413).json(body);
+    return;
+  }
+
+  // Caso 4: error inesperado — nunca exponer internos al cliente
   console.error('[ErrorHandler] Error no controlado:', err instanceof Error ? err.stack : err);
 
   const body: ErrorResponseBody = {
