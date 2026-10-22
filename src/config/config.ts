@@ -29,8 +29,8 @@ class Config {
         this.dbUser = this.required('DB_USER');
         this.dbPassword = this.required('DB_PASSWORD');
         this.dbName = this.required('DB_NAME');
-        this.jwtSecret = this.required('JWT_SECRET');
-        this.jwtExpiresIn = this.required('JWT_EXPIRES_IN');
+        this.jwtSecret = this.requiredMinLength('JWT_SECRET', 32);
+        this.jwtExpiresIn = this.requiredDuration('JWT_EXPIRES_IN');
     }
 
     /**
@@ -63,6 +63,32 @@ class Config {
             );
         }
         return value;
+    }
+
+    /** Lee una variable de texto obligatoria. Lanza error si tiene menos de minLength caracteres. */
+    private requiredMinLength(name: string, minLength: number): string {
+        const value = this.required(name);
+        if (value.length < minLength) {
+            throw new Error(
+                `La variable ${name} debe tener al menos ${minLength} caracteres (tiene ${value.length})`,
+            );
+        }
+        return value;
+    }
+
+    /**
+     * Lee una duración obligatoria con formato número + unidad (s, m, h o d), por ejemplo
+     * "30m" o "1h". Lanza error si no tiene ese formato o si el número es cero.
+     */
+    private requiredDuration(name: string): string {
+        const raw = this.required(name);
+        const match = /^(\d+)(s|m|h|d)$/.exec(raw);
+        if (match === null || Number(match[1]) <= 0) {
+            throw new Error(
+                `La variable ${name} debe ser un número mayor que cero seguido de s, m, h o d, por ejemplo "1h" o "30m" (valor recibido: "${raw}")`,
+            );
+        }
+        return raw;
     }
 }
 
