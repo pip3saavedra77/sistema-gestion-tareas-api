@@ -2,6 +2,7 @@ import express, { type Application, type Request, type Response } from 'express'
 import { requestLogger } from './api/middlewares/requestLogger.js';
 import { notFoundHandler } from './api/middlewares/notFoundHandler.js';
 import { errorHandler } from './api/middlewares/errorHandler.js';
+import authRoutes from './api/routes/auth.routes.js';
 
 const app: Application = express();
 
@@ -15,6 +16,8 @@ app.use(express.json());
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' });
 });
+
+app.use('/auth', authRoutes);
 
 // 4. Manejador de rutas no encontradas (debe ir después de todas las rutas)
 app.use(notFoundHandler);
