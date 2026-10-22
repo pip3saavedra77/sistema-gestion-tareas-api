@@ -189,7 +189,7 @@ Para probar las rutas protegidas: haz login en `POST /auth/login`, copia el toke
 | `fecha_vencimiento` | Opcional, formato `AAAA-MM-DD` |
 | `estado` | `pendiente` (por defecto), `en curso` o `completada` |
 
-Las contraseñas deben tener entre 8 y 72 caracteres. Los emails se guardan en minúsculas.
+Las contraseñas deben tener al menos 8 caracteres y como máximo 72 bytes en UTF-8, porque bcrypt ignora lo que pase de 72 bytes (una letra como `ñ` ocupa 2 bytes). Los emails se guardan en minúsculas.
 
 ### Formato de los errores
 
@@ -210,6 +210,7 @@ Todos los errores responden con la misma estructura (`details` solo aparece en e
 | `AUTHENTICATION_ERROR` | 401 | Token ausente, inválido o vencido, o credenciales incorrectas |
 | `NOT_FOUND` | 404 | La ruta, o la tarea, no existe (o es de otro usuario) |
 | `CONFLICT` | 409 | El correo ya está registrado |
+| `PAYLOAD_TOO_LARGE` | 413 | El cuerpo de la petición supera el límite de 100 KB |
 | `INTERNAL_ERROR` | 500 | Error inesperado (nunca se envía el detalle interno al cliente) |
 
 ### Ejemplo con curl
@@ -246,7 +247,7 @@ El esquema completo está en `src/persistence/schema.sql`.
 - No hay pruebas automáticas (eran opcionales). Las verificaciones manuales de cada funcionalidad están documentadas en `DEVELOPMENT_LOG.md`.
 - No hay límite de intentos de login.
 - `POST /auth/register` revela si un correo ya está registrado (responde 409).
-- El formato de `JWT_EXPIRES_IN` no se valida al arrancar: con un valor inválido, el login respondería 500.
+- Un token de un usuario eliminado sigue pasando el middleware: `GET /tasks` responde 200 con lista vacía y `POST /tasks` responde 401.
 - Los mensajes de la lista `details` de los errores de validación están en inglés, porque son los de AJV.
 - `PUT /tasks/:id` no permite borrar la fecha de vencimiento de una tarea.
 - `GET /tasks` devuelve todas las tareas, sin paginación.
