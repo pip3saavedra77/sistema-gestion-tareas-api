@@ -279,6 +279,103 @@ Como el walkthrough es lo que Antigravity cuenta de su propio trabajo, no lo tom
 - Con el servidor corriendo: `GET /ruta-inexistente` responde 404 con `NOT_FOUND`; un `POST` con JSON roto responde 400 con `VALIDATION_ERROR`; `GET /health` responde 200 con `{"status":"ok"}`.
 - El log del servidor muestra una línea por petición con fecha, método, ruta, estado y milisegundos.
 
+### Entrada 5: Registro y login con Antigravity (21 y 22/10/2026)
+
+**Lo que le pedí a Claude** (corregí la ortografía; el sentido es el original):
+
+> Sí, dale, hagamos lo de registro y login, con eso mañana queda menos tarea por realizar. Dame de nuevo el prompt para dárselo a Antigravity.
+
+Las decisiones de diseño de esta tarea (contraseña de 8 a 72 caracteres, mismo mensaje en los dos fallos de login y email normalizado) ya las había tomado en la Entrada 4.
+
+**Prompt que Claude me dio y que envié a Antigravity:**
+
+```
+CONTEXTO: API Express 5 + TypeScript estricto (NO NestJS), PostgreSQL con el driver "pg".
+Ya existen: Config (Singleton) en src/config/config.ts, pool en src/persistence/database.ts,
+errores en src/errors (AppError, ValidationError, AuthenticationError, ConflictError, ...),
+middlewares en src/api/middlewares (validate, errorHandler, notFoundHandler, requestLogger)
+y src/app.ts. La tabla users tiene: id (entero autoincremental), nombre, email (UNIQUE),
+password_hash, created_at.
+Express 5 reenvía solo al errorHandler los errores de funciones async: no uses try/catch
+solo para reenviar errores.
+Trabajo en Windows (PowerShell).
+
+TAREA: registro y login de usuarios.
+
+HACER:
+1. Instalar únicamente: bcrypt, jsonwebtoken y, como dev, @types/bcrypt y @types/jsonwebtoken.
+   Si bcrypt falla al instalarse por compilación nativa, DETENTE y avísame; no cambies de librería.
+2. Capas (una responsabilidad por archivo):
+   - src/api/schemas/auth.schemas.ts: esquemas AJV con additionalProperties: false.
+     register: nombre (string, 1-100), email (string, format "email", máx 255),
+     password (string, 8-72); los tres requeridos.
+     login: email (format "email") y password (string, 1-72); ambos requeridos.
+   - src/persistence/user.repository.ts: funciones createUser y findByEmail con consultas
+     SQL parametrizadas ($1, $2...). Nunca concatenar texto en el SQL.
+   - src/services/auth.service.ts: lógica de negocio.
+   - src/controllers/auth.controller.ts: recibe req/res y llama al servicio.
+   - src/api/routes/auth.routes.ts: POST /register y POST /login con validate(schema, 'body').
+   - Registrar las rutas en src/app.ts bajo /auth, antes de notFoundHandler.
+3. Registro: normalizar el email (trim + minúsculas) antes de guardar. Hash con bcrypt con
+   saltRounds = 10 definido como constante con nombre. Si el email ya existe, lanzar
+   ConflictError con mensaje "El correo ya está registrado". Detectarlo capturando el error
+   de PostgreSQL con código 23505, NO consultando primero y luego insertando.
+   Responder 201 con { id, nombre, email }. NUNCA devolver password_hash.
+4. Login: normalizar el email igual; buscar el usuario; comparar con bcrypt.compare.
+   Si el usuario no existe o la contraseña no coincide, lanzar AuthenticationError con el
+   mismo mensaje "Credenciales inválidas" en ambos casos. Si el usuario no existe, ejecutar
+   igual un bcrypt.compare contra un hash falso constante para igualar tiempos de respuesta.
+   Si las credenciales son correctas, firmar un JWT: algoritmo HS256 explícito, secreto
+   config.jwtSecret, expiresIn config.jwtExpiresIn, payload { sub: id } (id como string).
+   Responder 200 con { token }. Resolver el tipado de expiresIn sin "any".
+5. Definir interfaces de TypeScript para User (fila de la BD) y para lo que devuelven los
+   servicios.
+
+REGLAS: prohibido "any"; JSDoc en español y comentarios sencillos; nunca registrar en logs
+ni devolver contraseñas ni hashes; no cambiar la API de los middlewares existentes;
+mantener el mismo estilo de imports que usan los middlewares existentes.
+
+NO HACER: no crear el middleware de autenticación ni rutas de tareas, no tocar config.ts,
+database.ts ni schema.sql, no instalar otras dependencias, no usar git.
+
+AL TERMINAR: lista de archivos creados o modificados, versiones instaladas y comandos
+curl.exe de PowerShell para probar registro, email repetido, login correcto e incorrecto.
+```
+
+**Auditoría del resultado:** le pedí a Antigravity un resumen con este mensaje (corregí la ortografía):
+
+> Dame un walkthrough donde me digas qué hiciste y todo lo que creaste con código, para mostrárselo a mi auditor.
+
+Como el walkthrough es lo que Antigravity cuenta de su propio trabajo, lo comprobé con comandos y Claude lo revisó conmigo contra el prompt. Al correr sus propias pruebas, Antigravity creó un usuario de prueba en mi base de datos.
+
+**Qué se aceptó y por qué:**
+- Una capa por archivo (esquemas, repositorio, servicio, controlador y rutas), porque separa las responsabilidades como pide el enunciado.
+- Consultas parametrizadas (`$1, $2, $3`) en el repositorio, para evitar inyección SQL.
+- Detectar el email repetido capturando el error `23505` de PostgreSQL y no consultando antes de insertar. Así no hay una ventana en la que dos registros simultáneos pasen la comprobación.
+- Hash con `bcrypt` y `SALT_ROUNDS = 10` como constante con nombre; el hash nunca se devuelve en una respuesta.
+- Mismo mensaje ("Credenciales inválidas") para email inexistente y contraseña incorrecta, y un `bcrypt.compare` contra un hash falso cuando el usuario no existe, para que ambos casos tarden parecido.
+- JWT con `HS256` explícito, `sub` como texto y expiración tomada de la configuración.
+- Esquemas con `additionalProperties: false`, que rechazan campos que no esperamos (por ejemplo un `rol`).
+- Dependencias: `bcrypt` ^6.0.0 y `jsonwebtoken` ^9.0.3, más sus tipos.
+
+**Qué se modificó o rechazó y por qué:**
+- **Bug que corregí yo:** Claude notó al leer el código que `minLength: 1` aceptaba un nombre de solo espacios y que luego `trim()` lo dejaba vacío. Lo reproduje con `curl`: la API respondió 201 y guardó un usuario con `"nombre":""` (id 5). Agregué `pattern: '\\S'` al campo `nombre` de `registerSchema` y repetí la misma petición: ahora responde 400 con `"field":"nombre"` (`fix: reject blank names in register schema`).
+- **Afirmaciones del walkthrough que no acepté tal cual**, según me señaló Claude: dice que firmar con `HS256` previene el ataque `alg: none`, pero eso se previene al *verificar* el token indicando los algoritmos permitidos, y lo haré en el middleware de autenticación. También habla de "cero conversiones inseguras", pero hay un cast en `jwtExpiresIn`. El formato `email` de AJV es una validación simplificada, no el RFC 5322 completo, y los análisis de complejidad O(1) son relleno que no usaré.
+- **Limitaciones conocidas que no corregí:** `Config` no valida el formato de `JWT_EXPIRES_IN` (con un valor inválido, el login respondería 500); el 409 revela que un email ya está registrado; y no hay límite de intentos de login.
+
+**Verificación realizada:**
+- `git status`, `git diff package.json`, búsqueda de `any` en `src` (sin resultados) y `npm run build` sin errores.
+- Pruebas con `curl` (resultado real de cada una):
+  - Registro de `ana@test.com`: 201 con `{id, nombre, email}`, sin hash.
+  - El mismo correo con mayúsculas (`ANA@test.com`): 409.
+  - Login con contraseña incorrecta: 401 "Credenciales inválidas".
+  - Login con email inexistente: 401 con exactamente el mismo cuerpo y el mismo `Content-Length` (84).
+  - Login correcto: 200 con token.
+  - Campo extra `rol`: 400 con `"field":"rol"`.
+  - Contraseña de 3 caracteres: 400 con el detalle en `password`.
+- Consulta a la base de datos: los emails se guardan en minúsculas y `password_hash` empieza con `$2b$10$`, es decir, un hash de bcrypt y no la contraseña.
+- Tiempos en el log del servidor: 71 ms (contraseña incorrecta), 50 ms (email inexistente) y 56 ms (login correcto). Son del mismo orden de magnitud, así que no se distingue por tiempo si un email existe.
+
 ## Decisiones sin asistencia de IA
 
 1. **Usar Docker solo para la base de datos.** La propuse yo antes de que Claude la recomendara. Razón: me da un entorno reproducible. La API sigue ejecutándose con `npm run dev`, como pide el enunciado, y dejaré en el README una alternativa con PostgreSQL local.
@@ -299,8 +396,4 @@ Al ejecutar `Copy-Item .env.example .env`, PowerShell dijo que el archivo no exi
 
 ### Esquema creado con el tipo de id equivocado (21/10/2026)
 
-Había decidido usar ids autoincrementales, pero la base de datos quedó creada con UUID, probablemente porque ejecuté `npm run db:init` con la primera versión del esquema antes de cambiarla. Lo noté en las pruebas manuales: el id de un usuario salía como `1fa37976-...` y una inserción falló con el error `column "user_id" is of type uuid but expression is of type integer`. Revisé `schema.sql`, lo dejé con ids autoincrementales, borré el volumen de Docker con `docker compose down -v` para que la base se recreara, volví a ejecutar `npm run db:init` y repetí las pruebas. Aprendí que `CREATE TABLE IF NOT EXISTS` no modifica tablas que ya existen, y que las pruebas manuales sirven para detectar este tipo de errores.
-
-### Base de datos vacía tras recrear el contenedor (21/10/2026)
-
-Al volver a trabajar, `docker compose ps` no mostraba ningún contenedor y `docker compose up -d` creó de nuevo la red y el volumen. La API arrancaba porque solo comprueba que la base responde, pero las tablas ya no existían. Ejecuté `npm run db:init` y confirmé con `\dt` que volvían a estar `users` y `tasks`. Aprendí que, si el volumen se recrea, hay que volver a aplicar el esquema.
+Había decidido usar ids autoincrementales, pero la base de datos quedó creada con UUID, probablemente porque ejecuté `npm run db:init` con la primera versión del esquema antes de cambiarla. Lo noté en las pruebas manuales: el id de un usuario salía como `1fa37976-...` y una inserción falló con el error `column "user_id" is of type uuid but expression is of type integer`. Revisé `schema.sql`, lo dejé con ids autoincrementales,
